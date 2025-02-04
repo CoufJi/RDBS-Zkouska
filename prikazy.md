@@ -154,20 +154,28 @@ SECURITY DEFINER -- Bez neho by byla tabulka 'uzivatelska_cinnost_faktury' vlast
     pouzity_prikaz RECORD;
     id_radku INT;
   BEGIN
-    CREATE TABLE IF NOT EXISTS uzivatelska_cinnost_faktury(id SERIAL, nazev_uctu TEXT, id_radku INT, datum_cas TIMESTAMP, prikaz TEXT, stara_data TEXT, nova_data TEXT);	
+    --CREATE TABLE IF NOT EXISTS uzivatelska_cinnost_faktury(id SERIAL, nazev_uctu TEXT, id_radku INT, datum_cas TIMESTAMP, prikaz TEXT, stara_data TEXT, nova_data TEXT);	
 
-    IF OLD.id IS NULL THEN		-- Pokud se jedna o INSERT, nastav id_radku na nove ID
-    id_radku = NEW.ID;
-    ELSE
-    id_radku = OLD.ID;	-- Pokud se jedna o jakoukoliv jinou modifikovaci operaci, id je proste to same
-    END IF;
-    -- dodelat if osetreni
+    -- Zjistuje, jaka byla pouzita operace a na zaklade toho jedna
+    -- Pri INSERT nastavi id na nove id, jelikoz stare neexistuje
+    -- Pri DELETE nastavi id_radku na stare id, jelikoz nove nemuze existovat
+    -- Pokud dojde k updatu, ktery nic nezmeni, do loggovaci tabulky se nic nepropise 
+    IF TG_OP = 'INSERT' THEN
+      id_radku = NEW.id;
+      INSERT INTO uzivatelska_cinnost_faktury(nazev_uctu, id_radku, datum_cas, prikaz, stara_data, nova_data) VALUES(SESSION_USER, id_radku ,current_timestamp, tg_op, OLD, NEW);
+    ELSIF TG_OP = 'DELETE' THEN 
+      id_radku = OLD.id;
+      INSERT INTO uzivatelska_cinnost_faktury(nazev_uctu, id_radku, datum_cas, prikaz, stara_data, nova_data) VALUES(SESSION_USER, id_radku ,current_timestamp, tg_op, OLD, NEW);
+   ELSE
+     id_radku = NEW.id;
+     IF OLD IS DISTINCT FROM NEW THEN
+       INSERT INTO uzivatelska_cinnost_faktury(nazev_uctu, id_radku, datum_cas, prikaz, stara_data, nova_data) VALUES(SESSION_USER, id_radku ,current_timestamp, tg_op, OLD, NEW);
+      --  SESSION_USER -> Uzivatel, ktery provedl zmenu,
+      -- tg_op -> O jakou zmenu se presne jedna (UPDATE, DELETE, INSERT)
+  END IF;
+END IF;
 
-    INSERT INTO uzivatelska_cinnost_faktury(nazev_uctu, id_radku, datum_cas, prikaz, stara_data, nova_data) VALUES(SESSION_USER, id_radku ,current_timestamp, tg_op, OLD, NEW);
-    --  SESSION_USER -> Uzivatel, ktery provedl zmenu,
-    -- tg_op -> O jakou zmenu se presne jedna (UPDATE, DELETE, INSERT)
-
-  RETURN NULL;	--  funkce musi neco vratit, vzhledem k tomu, ze vkladame (a vytvarime) do tabulky, nic nevracime
+RETURN NULL;	--  funkce musi neco vratit, vzhledem k tomu, ze vkladame (a vytvarime) do tabulky, nic nevracime
 
 END;
 $$;
@@ -175,7 +183,7 @@ $$;
 -- Vytvoreni triggeru, ktery bude reagovat na jakoukoliv zmenu
 CREATE TRIGGER loggovani_cinnosti
   AFTER INSERT OR UPDATE OR DELETE on faktury FOR EACH ROW
-	EXECUTE FUNCTION loggovani();
+  EXECUTE FUNCTION loggovani();
 
 	
 -- Prihlaseni pres uzivatele, jenz ma pravo menit tabulku 'faktury'
@@ -266,7 +274,9 @@ CREATE OR REPLACE PROCEDURE vytvor_zamestnanecke_ucty() LANGUAGE plpgsql AS $$
         EXECUTE FORMAT('GRANT INSERT, UPDATE, DELETE, SELECT ON ALL TABLES IN SCHEMA public TO %I', uzivatelske_jmeno);
       ELSIF uzivatel.id_pozice = 1 THEN
         EXECUTE FORMAT('GRANT SELECT ON ALL TABLES IN SCHEMA public TO %I', uzivatelske_jmeno);
-        EXECUTE FORMAT('GRANT UPDATE, DELETE, INSERT ON faktury TO %I', uzivatelske_jmeno);     	
+        EXECUTE FORMAT('GRANT UPDATE, DELETE, INSERT ON faktury TO %I', uzivatelske_jmeno);
+	EXECUTE FORMAT('GRANT UPDATE, DELETE, INSERT ON uzivatelska_cinnost_faktury TO %I', uzivatelske_jmeno);  
+	EXECUTE FORMAT('GRANT UPDATE ON uzivatelska_cinnost_faktury_id_seq TO %I', uzivatelske_jmeno);     	
       ELSIF uzivatel.id_pozice = 4 THEN	
         EXECUTE FORMAT('GRANT SELECT ON klienti TO %I', uzivatelske_jmeno);
       EXECUTE FORMAT('GRANT SELECT ON zamestnanci TO %I', uzivatelske_jmeno);
