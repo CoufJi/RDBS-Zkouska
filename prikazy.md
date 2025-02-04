@@ -175,7 +175,7 @@ SECURITY DEFINER -- Bez neho by byla tabulka 'uzivatelska_cinnost_faktury' vlast
   END IF;
 END IF;
 
-RETURN NULL;	--  funkce musi neco vratit, vzhledem k tomu, ze vkladame (a vytvarime) do tabulky, nic nevracime
+RETURN NULL;
 
 END;
 $$;
